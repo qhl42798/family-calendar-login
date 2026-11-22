@@ -95,8 +95,8 @@
   <span id="copy-state" class="muted"></span></p>
   <p class="muted">注意顺序：先复制第 2 步那句话，再复制 token。每次只复制一个东西，
   token 最后再复制，不然会被顶掉。粘贴好以后，Muse 就能读写你的日历了。
-  会话放着不用大约半天就会过期；过期后 Muse 会请你重新登录一次，
-  还是上面这几步。</p>
+  由于苹果的保护政策，登录信息不能长期保存；如果过期了，连接 Muse
+  需要重新登录一次，还是上面这几步。</p>
 </div>
 
 <details class="card">
@@ -176,7 +176,7 @@
   function buildAuthConfig() {
     return {
       apiToken: API_TOKEN,
-      persist: true, // 会话 cookie：放着不用大约半天就会过期
+      persist: true, // 会话 cookie：苹果的保护政策不让长期保存，过期后需重新登录
       signInButton: { id: 'apple-sign-in-button', theme: 'black' },
       signOutButton: { id: 'apple-sign-out-button', theme: 'black' }
       // 注意：不要加 signInCallbackURL。Dashboard 里这个 token 的登录回调
