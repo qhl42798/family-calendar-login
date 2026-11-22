@@ -15,12 +15,16 @@
   没有参数时默认用 Joe 的记录名。容器与 API Token 是整个 App
   共用的，写死在本页即可（API Token 只标识容器，不授予权限）。
 
-  流程（两步）：
+  流程（户主三步，管理员四步）：
+  0. 仅管理员（家人）：先把 App 设置页里“复制给 Muse 的设置信息”
+     的内容发给自己的 Muse，再从第 1 步开始。户主跳过这一步。
   1. 点“用 Apple ID 登录”（苹果官方登录页，支持 Face ID，Muse
      不碰密码）。登录后本页通过拦截 CloudKit JS 发出的请求，
      从 URL 里取出 ckWebAuthToken。
-  2. 点“复制 token”，回到 Muse 对话，把它粘贴到 Muse 发给你的
-     安全采集页里。不要发在聊天里。
+  2. 点“复制这句话”，粘贴到 Muse 对话里发过去，等 Muse 发给你
+     安全采集链接。不要把 token 发在聊天里。
+  3. 回到本页面，点“复制 token”，打开第 2 步里 Muse 发给你的
+     安全采集链接，把 token 粘贴进去。
 
   注意：不要加 signInCallbackURL。Dashboard 里这个 token 的登录
   回调方式是 Post Message（弹窗模式），不是 URL Redirect。
@@ -51,7 +55,8 @@
 <h1>Family Smart Calendar — 连接 Muse</h1>
 <p class="muted">让 Muse 帮你管理日历。先用你自己的 Apple ID 登录（苹果官方登录页，
 支持 Face ID，Muse 不会看到你的密码），再把登录后得到的会话 token
-交给 Muse。整个过程只要点两次按钮。</p>
+交给 Muse。户主分三步；家人（管理员）多一个第 0 步，一共四步，
+后面三步和户主完全一样。</p>
 
 <div class="card">
   <h2>1. 用 Apple ID 登录</h2>
@@ -62,14 +67,36 @@
 </div>
 
 <div class="card">
-  <h2>2. 把 token 交给 Muse</h2>
-  <p class="muted">登录后点下面按钮，token 会复制到剪贴板。然后回到 Muse 对话，
-  把它粘贴到 Muse 发给你的安全采集页里，不要发在聊天里。</p>
+  <h2>0. 仅管理员（家人）先做这一步，户主跳过</h2>
+  <p>如果你是户主，直接从第 1 步开始，不用看这一步。如果你是家人
+  （管理员，App 里能改日程），先打开 App 设置页，点「复制给 Muse
+  的设置信息」，把复制到的内容发给自己的 Muse。这是告诉你的 Muse：
+  写进谁的日历、哪个库。发完再从第 1 步开始，后面三步和户主完全一样。
+  只能查看的家人不用连接 Muse，Muse 也不能替你改日程。</p>
+</div>
+
+<div class="card">
+  <h2>2. 复制下面这句话，发给 Muse</h2>
+  <p>点下面按钮复制这句话，回到 Muse 对话里粘贴、发过去。Muse 看了就
+  知道是哪个 App、要干什么，会发给你一个安全采集链接。不要把 token
+  发在聊天里。</p>
+  <p><textarea id="sentence-field" readonly rows="3" style="min-height: 64px;">我要连接 Family Smart Calendar，我刚用 Apple ID 登录了，请发给我安全采集链接，我再把 CloudKit 会话 token 粘贴进去。</textarea></p>
+  <p><button class="primary" id="copy-sentence">复制这句话</button>
+  <span id="sentence-state" class="muted"></span></p>
+</div>
+
+<div class="card">
+  <h2>3. 回到这个页面，复制 token，粘贴到安全链接里</h2>
+  <p>Muse 发给你安全采集链接以后，回到这个页面（它还在 Safari 后台开着，
+  不用重新登录），点下面按钮复制 token。再打开 Muse 发给你的安全链接，
+  把 token 粘贴进去，就完成了。</p>
   <p><input id="token-field" type="password" readonly placeholder="登录后这里会有 token（不显示明文）">
   <button class="primary" id="copy-token" disabled>复制 token</button>
   <span id="copy-state" class="muted"></span></p>
-  <p class="muted">粘贴好以后，Muse 就能读写你的日历了。会话约两周过期；
-  过期后 Muse 会请你重新登录一次，还是上面这两步。</p>
+  <p class="muted">注意顺序：先复制第 2 步那句话，再复制 token。每次只复制一个东西，
+  token 最后再复制，不然会被顶掉。粘贴好以后，Muse 就能读写你的日历了。
+  会话放着不用大约半天就会过期；过期后 Muse 会请你重新登录一次，
+  还是上面这几步。</p>
 </div>
 
 <details class="card">
@@ -149,7 +176,7 @@
   function buildAuthConfig() {
     return {
       apiToken: API_TOKEN,
-      persist: true, // 会话 cookie：约两周内不用重新登录
+      persist: true, // 会话 cookie：放着不用大约半天就会过期
       signInButton: { id: 'apple-sign-in-button', theme: 'black' },
       signOutButton: { id: 'apple-sign-out-button', theme: 'black' }
       // 注意：不要加 signInCallbackURL。Dashboard 里这个 token 的登录回调
@@ -228,8 +255,29 @@
     f.type = 'password';
     var cs = $('copy-state');
     if (cs) {
-      cs.textContent = '已复制。请只粘贴到 Muse 给你的安全采集页，不要发在聊天里。';
+      cs.textContent = '已复制。请粘贴到第 2 步里 Muse 发给你的安全采集链接里，不要发在聊天里。';
       cs.className = 'ok';
+    }
+  });
+
+  // ---- 复制这句话 ----
+  $('copy-sentence').addEventListener('click', function () {
+    var text = $('sentence-field').value;
+    function done() {
+      var ss = $('sentence-state');
+      if (ss) {
+        ss.textContent = '已复制。回到 Muse 对话里粘贴、发过去，等 Muse 发给你安全采集链接。';
+        ss.className = 'ok';
+      }
+    }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(done).catch(function () { fallbackCopy(); });
+    } else { fallbackCopy(); }
+    function fallbackCopy() {
+      var f = $('sentence-field');
+      f.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      done();
     }
   });
 
