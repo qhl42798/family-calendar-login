@@ -3,35 +3,28 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Family Smart Calendar — 登录 CloudKit</title>
+<title>Family Smart Calendar — 连接 Muse</title>
 <!--
-  Family Smart Calendar — CloudKit 网页登录页（方案 A）
+  Family Smart Calendar — 连接 Muse（CloudKit 网页登录页）
 
-  用途：让管理员（Joe 或 Sophie）用自己的 Apple ID 登录，
-  拿到 ckWebAuthToken，让 Muse 能以该管理员的身份写 CloudKit
-  私有库（Joe）或共享库（其他管理员）。
+  用途：让日历的管理员用自己的 Apple ID 登录，拿到会话 token
+  （ckWebAuthToken），交给 Muse，让 Muse 能以该管理员的身份读写
+  CloudKit 日历库。
 
-  工作原理（见 MUSE_WRITE_API.md 第 11 节）：
-  - 本页加载苹果官方 CloudKit JS（cdn.apple-cloudkit.com/ck/2/cloudkit.js），
-    用容器的 API Token 配置；API Token 只标识容器，不授予任何权限，
-    所以把它写进页面是安全的。
-  - 点“用 Apple ID 登录”，苹果自己的登录页会打开（支持 Face ID /
-    已保存密码），Muse 绝不碰密码。
-  - 登录后 CloudKit JS 不直接给 token，本页通过拦截它发出的
-    fetch/XHR 请求，从 URL 里取出 ckWebAuthToken。
-  - 拿到 token 后，本页把它 POST 到回调地址（默认
-    http://127.0.0.1:8765/__ck_callback，由 cloudkit_auth_server.py
-    接收并保存到 ~/workspace/certs/cloudkit_webauth.json，0600 权限）。
-    token 的值永远不会显示在本页、也不会进聊天记录。
-  - 回调不可达时（如手机浏览器连不上 VM 的 localhost），可以用下面
-    的“直接执行操作”在浏览器里完成写入，不需要把 token 传出来。
+  本页适用所有用户：户主记录名从链接里的 ?owner= 参数读取，
+  没有参数时默认用 Joe 的记录名。容器与 API Token 是整个 App
+  共用的，写死在本页即可（API Token 只标识容器，不授予权限）。
 
-  本文件是托管版：API Token 与 Zone 主人记录名已在生成时注入，
-  回调地址留空（静态部署，没有接收端）。
+  流程（两步）：
+  1. 点“用 Apple ID 登录”（苹果官方登录页，支持 Face ID，Muse
+     不碰密码）。登录后本页通过拦截 CloudKit JS 发出的请求，
+     从 URL 里取出 ckWebAuthToken。
+  2. 点“复制 token”，回到 Muse 对话，把它粘贴到 Muse 发给你的
+     安全采集页里。不要发在聊天里。
 
-  前置条件：CloudKit Dashboard 里，该 API Token 必须允许“Sign in with
-  Apple ID”，且允许的来源（allowed origins）里必须包含本页的来源
-  （协议+域名+端口，如 http://127.0.0.1:8765 或 artifact 的域名）。
+  注意：不要加 signInCallbackURL。Dashboard 里这个 token 的登录
+  回调方式是 Post Message（弹窗模式），不是 URL Redirect。
+  打开页面后请尽快点登录；放久了登录链接会过期，刷新页面再点即可。
 -->
 <script src="https://cdn.apple-cloudkit.com/ck/2/cloudkit.js"></script>
 <style>
@@ -51,302 +44,70 @@
         font-size: 12px; white-space: pre-wrap; word-break: break-word; }
   label { font-size: 13px; color: #6e6e73; display: block; margin: 8px 0 4px; }
   #apple-sign-in-button, #apple-sign-out-button { margin: 8px 0; }
+  summary { cursor: pointer; }
 </style>
 </head>
 <body>
-<h1>Family Smart Calendar — 登录 CloudKit</h1>
-<p class="muted">用你自己的 Apple ID 登录。登录页是苹果官方的，支持 Face ID /
-已保存密码；Muse 不会看到你的密码。本页只把登录后得到的会话 token
-（ckWebAuthToken）发给 Muse 的回调保存，token 的值不会显示出来。</p>
+<h1>Family Smart Calendar — 连接 Muse</h1>
+<p class="muted">让 Muse 帮你管理日历。先用你自己的 Apple ID 登录（苹果官方登录页，
+支持 Face ID，Muse 不会看到你的密码），再把登录后得到的会话 token
+交给 Muse。整个过程只要点两次按钮。</p>
 
 <div class="card">
-  <h2>1. 登录</h2>
+  <h2>1. 用 Apple ID 登录</h2>
   <div id="apple-sign-in-button"></div>
   <div id="apple-sign-out-button"></div>
   <p>登录状态：<span id="auth-state">正在检查…</span></p>
   <p>用户记录名：<span id="user-record">—</span></p>
-  <p>会话 token：<span id="token-state">未获取</span></p>
 </div>
 
 <div class="card">
   <h2>2. 把 token 交给 Muse</h2>
-  <label for="callback-url">回调地址（Muse 的接收端；手机浏览器连不上 VM 的 localhost 时会失败，见第 3 步）</label>
-  <input id="callback-url" type="text" value="">
-  <p><button class="primary" id="send-token" disabled>发送 token 给 Muse 保存</button>
-     <span id="callback-state" class="muted"></span></p>
-  <p class="muted">回调成功后，Muse 就能用这个会话写你的私有日历库了。
-  会话约两周过期；过期后 Muse 会请你重新登录一次。</p>
-  <details>
-    <summary class="muted">手动复制 token（备用：只有回调不可达时用）</summary>
-    <p class="muted">点下面按钮会把 token 复制到剪贴板。请只把它粘贴到 Muse 给你的
-    安全采集页，不要发在聊天里。</p>
-    <p><input id="token-field" type="password" readonly placeholder="登录后这里会有 token（不显示明文）">
-    <button id="copy-token">复制 token</button>
-    <span id="copy-state" class="muted"></span></p>
-  </details>
+  <p class="muted">登录后点下面按钮，token 会复制到剪贴板。然后回到 Muse 对话，
+  把它粘贴到 Muse 发给你的安全采集页里，不要发在聊天里。</p>
+  <p><input id="token-field" type="password" readonly placeholder="登录后这里会有 token（不显示明文）">
+  <button class="primary" id="copy-token" disabled>复制 token</button>
+  <span id="copy-state" class="muted"></span></p>
+  <p class="muted">粘贴好以后，Muse 就能读写你的日历了。会话约两周过期；
+  过期后 Muse 会请你重新登录一次，还是上面这两步。</p>
 </div>
 
-<div class="card">
-  <h2>3. 直接执行操作（不需要传出 token）</h2>
-  <p class="muted">如果第 2 步的回调不可达，可以直接在本页执行 CloudKit 操作：
+<details class="card">
+  <summary><b>高级：在浏览器里直接执行操作（可选）</b></summary>
+  <p class="muted">不需要把 token 传出来时，可以直接在本页执行 CloudKit 操作：
   浏览器里已经登录了，操作直接以你的身份发出，token 不离开浏览器。</p>
   <label for="op-db">数据库</label>
   <select id="op-db">
-    <option value="private">private（Joe 的私有库）</option>
-    <option value="shared">shared（其他管理员的共享库）</option>
+    <option value="private">private（我的私有库）</option>
+    <option value="shared">shared（共享库）</option>
   </select>
   <label for="op-name">操作</label>
   <select id="op-name">
-    <option value="records/query">records/query（查事项）</option>
-    <option value="records/modify" selected>records/modify（写事项）</option>
+    <option value="records/query" selected>records/query（查事项）</option>
+    <option value="records/modify">records/modify（写事项）</option>
     <option value="zones/list">zones/list（列 Zone）</option>
     <option value="users/current">users/current（当前用户）</option>
   </select>
   <label for="op-body">请求体（JSON）</label>
-  <textarea id="op-body">{
-  "operations": [
-    {
-      "operationType": "forceUpdate",
-      "record": {
-        "recordType": "Event",
-        "recordName": "05e50f5d-e405-4e8a-b0a7-6b0e5c524347",
-        "createShortGUID": true,
-        "fields": {
-          "title": {
-            "value": "Nathaniel 私人游泳课",
-            "type": "STRING"
-          },
-          "startDate": {
-            "value": 1796428800000,
-            "type": "TIMESTAMP"
-          },
-          "notes": {
-            "value": "11:00–12:00，Monte Sant' Angelo Mercy College, North Sydney。今年最后一次。",
-            "type": "STRING"
-          },
-          "color": {
-            "value": "blue",
-            "type": "STRING"
-          },
-          "repeatMode": {
-            "value": "none",
-            "type": "STRING"
-          },
-          "repeatIntervalWeeks": {
-            "value": 1,
-            "type": "INT64"
-          },
-          "repeatWeekdays": {
-            "value": [],
-            "type": "INT64_LIST"
-          },
-          "reminderMinutes": {
-            "value": [
-              1440,
-              60
-            ],
-            "type": "INT64_LIST"
-          }
-        }
-      }
-    },
-    {
-      "operationType": "forceUpdate",
-      "record": {
-        "recordType": "Event",
-        "recordName": "ceedf911-7de4-4541-9ff6-fd643c86b576",
-        "createShortGUID": true,
-        "fields": {
-          "title": {
-            "value": "Nelson 私人游泳课",
-            "type": "STRING"
-          },
-          "startDate": {
-            "value": 1796429700000,
-            "type": "TIMESTAMP"
-          },
-          "notes": {
-            "value": "11:15–12:00，Monte Sant' Angelo Mercy College, North Sydney。从下下个星期开始，每周六重复。",
-            "type": "STRING"
-          },
-          "color": {
-            "value": "pink",
-            "type": "STRING"
-          },
-          "repeatMode": {
-            "value": "weekly",
-            "type": "STRING"
-          },
-          "repeatIntervalWeeks": {
-            "value": 1,
-            "type": "INT64"
-          },
-          "repeatWeekdays": {
-            "value": [],
-            "type": "INT64_LIST"
-          },
-          "reminderMinutes": {
-            "value": [
-              1440,
-              60
-            ],
-            "type": "INT64_LIST"
-          }
-        }
-      }
-    },
-    {
-      "operationType": "forceUpdate",
-      "record": {
-        "recordType": "Event",
-        "recordName": "959d491e-2b28-42f1-a617-b7a6a09b3f88",
-        "createShortGUID": true,
-        "fields": {
-          "title": {
-            "value": "除蛋白除蛋白",
-            "type": "STRING"
-          },
-          "startDate": {
-            "value": 1795215600000,
-            "type": "TIMESTAMP"
-          },
-          "notes": {
-            "value": "",
-            "type": "STRING"
-          },
-          "color": {
-            "value": "purple",
-            "type": "STRING"
-          },
-          "repeatMode": {
-            "value": "custom",
-            "type": "STRING"
-          },
-          "repeatIntervalWeeks": {
-            "value": 2,
-            "type": "INT64"
-          },
-          "repeatWeekdays": {
-            "value": [
-              7
-            ],
-            "type": "INT64_LIST"
-          },
-          "reminderMinutes": {
-            "value": [
-              5
-            ],
-            "type": "INT64_LIST"
-          }
-        }
-      }
-    },
-    {
-      "operationType": "forceUpdate",
-      "record": {
-        "recordType": "Event",
-        "recordName": "f20cb768-83d8-4857-a675-706553ec31e6",
-        "createShortGUID": true,
-        "fields": {
-          "title": {
-            "value": "Nathaniel 英语班学费：现金 $3,700 交给 Fenton",
-            "type": "STRING"
-          },
-          "startDate": {
-            "value": 1795417200000,
-            "type": "TIMESTAMP"
-          },
-          "notes": {
-            "value": "Write On English Academy，Y5 NAPLAN 班，2027 年 Term 1 & 2，每周一 18:00–20:00，Mrs Shayla Fenton。现金 $3,700 下周一直接交给 Fenton 老师；Mimi Parker 收到后会短信发收据。银行转账是 $3,800，未选。",
-            "type": "STRING"
-          },
-          "color": {
-            "value": "teal",
-            "type": "STRING"
-          },
-          "repeatMode": {
-            "value": "none",
-            "type": "STRING"
-          },
-          "repeatIntervalWeeks": {
-            "value": 1,
-            "type": "INT64"
-          },
-          "repeatWeekdays": {
-            "value": [],
-            "type": "INT64_LIST"
-          },
-          "reminderMinutes": {
-            "value": [
-              1440,
-              60
-            ],
-            "type": "INT64_LIST"
-          }
-        }
-      }
-    },
-    {
-      "operationType": "forceUpdate",
-      "record": {
-        "recordType": "Event",
-        "recordName": "5698290f-ebc9-4006-9a84-c1de9b330132",
-        "createShortGUID": true,
-        "fields": {
-          "title": {
-            "value": "准备现金 $3,700（Nathaniel 英语班学费）",
-            "type": "STRING"
-          },
-          "startDate": {
-            "value": 1795251600000,
-            "type": "TIMESTAMP"
-          },
-          "notes": {
-            "value": "Write On English Academy，Y5 NAPLAN 班 2027 年 Term 1 & 2 学费，现金 $3,700，下周一（11 月 23 日）交给 Mrs Shayla Fenton。",
-            "type": "STRING"
-          },
-          "color": {
-            "value": "blue",
-            "type": "STRING"
-          },
-          "repeatMode": {
-            "value": "none",
-            "type": "STRING"
-          },
-          "repeatIntervalWeeks": {
-            "value": 1,
-            "type": "INT64"
-          },
-          "repeatWeekdays": {
-            "value": [],
-            "type": "INT64_LIST"
-          },
-          "reminderMinutes": {
-            "value": [
-              60
-            ],
-            "type": "INT64_LIST"
-          }
-        }
-      }
-    }
-  ],
-  "zoneID": {
-    "zoneName": "FamilyCalendarZone",
-    "ownerRecordName": "_5d5014c3834195c1fc788dee93ec6292"
-  },
-  "atomic": false
-}</textarea>
+  <textarea id="op-body"></textarea>
   <p><button class="primary" id="run-op" disabled>执行</button></p>
   <pre id="op-result">未执行。</pre>
-</div>
+</details>
 
 <script>
 (function () {
   var CONTAINER = 'iCloud.com.joe.familycalendar';
   var ENV = 'production';
   var API_TOKEN = '00793de40f6ddf8f648caefc8574aa246b19204c8941702d8a1a6a038efb7d0c';
-  var OWNER_RECORD_NAME = '_5d5014c3834195c1fc788dee93ec6292';
+  // 户主记录名：链接里的 ?owner= 参数优先，没有参数时用 Joe 的。
+  // App 设置页里的“连接 Muse”入口会带上当前用户的户主记录名。
+  var DEFAULT_OWNER = '_5d5014c3834195c1fc788dee93ec6292';
+  var OWNER_RECORD_NAME = DEFAULT_OWNER;
+  try {
+    var params = new URLSearchParams(window.location.search);
+    var ownerParam = params.get('owner');
+    if (ownerParam) { OWNER_RECORD_NAME = ownerParam; }
+  } catch (e) {}
   var currentToken = null;
 
   var $ = function (id) { return document.getElementById(id); };
@@ -358,8 +119,6 @@
   }
 
   // ---- 拦截发出的请求，从 URL 里取出 ckWebAuthToken ----
-  // CloudKit JS 不提供直接读 token 的接口，这是官方示例之外
-  // 社区验证过的做法（Bear Web 的 bcli 工具同款思路）。
   function captureFromUrl(url) {
     if (!url || typeof url !== 'string') return;
     var m = url.match(/[?&]ckWebAuthToken=([^&]+)/);
@@ -367,11 +126,9 @@
       var t = decodeURIComponent(m[1]);
       if (t && t !== currentToken) {
         currentToken = t;
-        $('token-state').textContent = '已获取（值不显示）';
-        $('token-state').className = 'ok';
-        $('send-token').disabled = false;
-        $('run-op').disabled = false;
         $('token-field').value = t;
+        $('copy-token').disabled = false;
+        $('run-op').disabled = false;
       }
     }
   }
@@ -388,21 +145,16 @@
   };
 
   // ---- 配置 CloudKit JS ----
-  // 包成函数：把配置集中在一处。
   var container = null;
   function buildAuthConfig() {
-    var auth = {
+    return {
       apiToken: API_TOKEN,
       persist: true, // 会话 cookie：约两周内不用重新登录
       signInButton: { id: 'apple-sign-in-button', theme: 'black' },
       signOutButton: { id: 'apple-sign-out-button', theme: 'black' }
       // 注意：不要加 signInCallbackURL。Dashboard 里这个 token 的登录回调
-      // 方式是 Post Message（弹窗模式），不是 URL Redirect；加了回调地址
-      // 会让页面走整页跳转流程，苹果那边直接报 Authentication Error
-      // （2026-11-22 实测：Face ID 后一直转，刷新后 Authentication Error）。
-      // 弹窗模式在 Safari 里点登录按钮即可弹出，登录后自动回到本页。
+      // 方式是 Post Message（弹窗模式），不是 URL Redirect。
     };
-    return auth;
   }
   function configureCloudKit() {
     CloudKit.configure({
@@ -442,57 +194,35 @@
   function onSignedOut() {
     setStatus('未登录', false);
     $('user-record').textContent = '—';
-    $('token-state').textContent = '未获取';
-    $('token-state').className = '';
-    $('send-token').disabled = true;
+    $('copy-token').disabled = true;
     $('run-op').disabled = true;
     currentToken = null;
   }
 
+  // 高级操作框的默认请求体：查当前用户的日历事项。
+  function defaultOpBody() {
+    return JSON.stringify({
+      query: { recordType: 'Event' },
+      resultsLimit: 100,
+      zoneID: { zoneName: 'FamilyCalendarZone', ownerRecordName: OWNER_RECORD_NAME }
+    }, null, 2);
+  }
+  $('op-body').value = defaultOpBody();
+
   configureCloudKit();
   wireAuth();
 
-  // ---- 登录链接不过期处理 ----
-  // cloudkit.js 只在页面初始化时抓一次登录链接，之后每 14 分钟才重新
-  // 拉取一次；而 IDMS 的 oauth_token 有效期很短，打开页面几分钟后再点
-  // 登录，拿到的就是过期链接，idmsa.apple.com 会报 Invalid OAuth Token。
-  // 注意：不要用定时器反复跑 setUpAuth() 来刷新链接——每次重跑都会把
-  // 登录按钮重新渲染成灰色不可点，点上去没反应（2026-11-22 实测）。
-  // 打开页面后请尽快点登录；如果放久了报 token 过期，刷新页面再点即可。
+  // 打开页面后请尽快点登录；登录链接放久了会过期，过期就刷新页面再点。
+  // 不要用定时器反复跑 setUpAuth() 刷新链接——每次重跑都会把登录按钮
+  // 重新渲染成灰色不可点（2026-11-22 实测）。
 
-  // ---- 回调：把 token POST 给 Muse 保存 ----
-  $('send-token').addEventListener('click', function () {
-    if (!currentToken) return;
-    var url = $('callback-url').value.trim();
-    if (!url || url.indexOf('__') === 0) {
-      $('callback-state').textContent = '回调地址未配置（本页是静态部署，没有接收端）。请用第 3 步直接执行操作。';
-      $('callback-state').className = 'bad';
-      return;
-    }
-    $('callback-state').textContent = '发送中…';
-    origFetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: currentToken })
-    }).then(function (resp) {
-      if (resp.ok) {
-        $('callback-state').textContent = '已保存 ✓ Muse 现在可以写你的日历了。';
-        $('callback-state').className = 'ok';
-      } else {
-        $('callback-state').textContent = '保存失败（HTTP ' + resp.status + '）。回调不可达时请用第 3 步。';
-        $('callback-state').className = 'bad';
-      }
-    }).catch(function (e) {
-      $('callback-state').textContent = '回调不可达：' + e.message + '。请用第 3 步直接执行操作。';
-      $('callback-state').className = 'bad';
-    });
-  });
-
+  // ---- 复制 token ----
   $('copy-token').addEventListener('click', function () {
+    if (!currentToken) return;
     var f = $('token-field');
     f.type = 'text'; f.select();
     try { document.execCommand('copy'); } catch (e) {}
-    if (navigator.clipboard && currentToken) {
+    if (navigator.clipboard) {
       navigator.clipboard.writeText(currentToken).catch(function () {});
     }
     f.type = 'password';
@@ -503,7 +233,7 @@
     }
   });
 
-  // ---- 直接执行操作（token 不离开浏览器） ----
+  // ---- 高级：直接执行操作（token 不离开浏览器） ----
   function runOp(retry) {
     if (!currentToken) {
       $('op-result').textContent = '还没有 token：请先登录。';
@@ -514,7 +244,6 @@
     var body;
     try { body = JSON.parse($('op-body').value); }
     catch (e) { $('op-result').textContent = '请求体不是合法 JSON：' + e.message; return; }
-    // token 含 base64 字符 + / =，必须百分号编码（苹果会把裸 + 解成空格）。
     var qs = 'ckAPIToken=' + encodeURIComponent(API_TOKEN) +
              '&ckWebAuthToken=' + encodeURIComponent(currentToken);
     var url = 'https://api.apple-cloudkit.com/database/1/' + CONTAINER +
@@ -525,8 +254,6 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     }).then(function (resp) {
-      // 回应头里带轮换后的新 token（浏览器可能因 CORS 读不到，
-      // 读不到时沿用旧 token；若旧 token 失效，下面的 401/421 分支会重新获取）。
       var rotated = null;
       try { rotated = resp.headers.get('X-Apple-CloudKit-Web-Auth-Token'); } catch (e) {}
       if (rotated) { currentToken = rotated; $('token-field').value = rotated; }
@@ -535,7 +262,6 @@
       });
     }).then(function (r) {
       if ((r.status === 401 || r.status === 421) && !retry) {
-        // token 过期：让 CloudKit JS 重新发一次请求拿新 token，再试一次。
         $('op-result').textContent = 'token 过期，正在重新获取…';
         return container.privateCloudDatabase.performQuery(
           { recordType: 'Event', resultsLimit: 1 }
