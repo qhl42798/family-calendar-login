@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Family Smart Calendar — 连接 Muse</title>
+<!--
+  Family Smart Calendar — 连接 Muse（CloudKit 网页登录页）
+
+  用途：让日历的管理员用自己的 Apple ID 登录，拿到会话 token
+  （ckWebAuthToken），交给 Muse，让 Muse 能以该管理员的身份读写
+  CloudKit 日历库。
+
+  本页适用所有用户：户主记录名从链接里的 ?owner= 参数读取，
+  没有参数时默认用 Joe 的记录名。容器与 API Token 是整个 App
+  共用的，写死在本页即可（API Token 只标识容器，不授予权限）。
+
+  流程（两步）：
+  1. 点“用 Apple ID 登录”（苹果官方登录页，支持 Face ID，Muse
+     不碰密码）。登录后本页通过拦截 CloudKit JS 发出的请求，
+     从 URL 里取出 ckWebAuthToken。
+  2. 点“复制 token”，回到 Muse 对话，把它粘贴到 Muse 发给你的
+     安全采集页里。不要发在聊天里。
+
+  注意：不要加 signInCallbackURL。Dashboard 里这个 token 的登录
+  回调方式是 Post Message（弹窗模式），不是 URL Redirect。
+  打开页面后请尽快点登录；放久了登录链接会过期，刷新页面再点即可。
+-->
+<script src="https://cdn.apple-cloudkit.com/ck/2/cloudkit.js"></script>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 640px; margin: 24px auto; padding: 0 16px; line-height: 1.6;
+         color: #1d1d1f; }
+  h1 { font-size: 20px; } h2 { font-size: 16px; margin-top: 28px; }
+  .card { border: 1px solid #d2d2d7; border-radius: 12px; padding: 16px; margin: 12px 0; }
+  .ok { color: #1d7a1d; } .bad { color: #b3261e; } .muted { color: #6e6e73; font-size: 13px; }
+  button { font-size: 15px; padding: 8px 16px; border-radius: 8px; border: 1px solid #d2d2d7;
+           background: #f5f5f7; cursor: pointer; }
+  button.primary { background: #0071e3; color: #fff; border-color: #0071e3; }
+  input, select, textarea { font-size: 14px; padding: 6px 8px; border: 1px solid #d2d2d7;
+           border-radius: 8px; width: 100%; box-sizing: border-box; }
+  textarea { font-family: ui-monospace, Menlo, monospace; min-height: 120px; }
+  pre { background: #f5f5f7; border-radius: 8px; padding: 12px; overflow: auto;
+        font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+  label { font-size: 13px; color: #6e6e73; display: block; margin: 8px 0 4px; }
+  #apple-sign-in-button, #apple-sign-out-button { margin: 8px 0; }
+  summary { cursor: pointer; }
+</style>
+</head>
+<body>
+<h1>Family Smart Calendar — 连接 Muse</h1>
+<p class="muted">让 Muse 帮你管理日历。先用你自己的 Apple ID 登录（苹果官方登录页，
+支持 Face ID，Muse 不会看到你的密码），再把登录后得到的会话 token
+交给 Muse。整个过程只要点两次按钮。</p>
+
+<div class="card">
+  <h2>1. 用 Apple ID 登录</h2>
+  <div id="apple-sign-in-button"></div>
+  <div id="apple-sign-out-button"></div>
+  <p>登录状态：<span id="auth-state">正在检查…</span></p>
+  <p>用户记录名：<span id="user-record">—</span></p>
+</div>
+
+<div class="card">
+  <h2>2. 把 token 交给 Muse</h2>
+  <p class="muted">登录后点下面按钮，token 会复制到剪贴板。然后回到 Muse 对话，
+  把它粘贴到 Muse 发给你的安全采集页里，不要发在聊天里。</p>
+  <p><input id="token-field" type="password" readonly placeholder="登录后这里会有 token（不显示明文）">
+  <button class="primary" id="copy-token" disabled>复制 token</button>
+  <span id="copy-state" class="muted"></span></p>
+  <p class="muted">粘贴好以后，Muse 就能读写你的日历了。会话约两周过期；
+  过期后 Muse 会请你重新登录一次，还是上面这两步。</p>
+</div>
+
+<details class="card">
+  <summary><b>高级：在浏览器里直接执行操作（可选）</b></summary>
+  <p class="muted">不需要把 token 传出来时，可以直接在本页执行 CloudKit 操作：
+  浏览器里已经登录了，操作直接以你的身份发出，token 不离开浏览器。</p>
+  <label for="op-db">数据库</label>
+  <select id="op-db">
+    <option value="private">private（我的私有库）</option>
+    <option value="shared">shared（共享库）</option>
+  </select>
+  <label for="op-name">操作</label>
+  <select id="op-name">
+    <option value="records/query" selected>records/query（查事项）</option>
+    <option value="records/modify">records/modify（写事项）</option>
+    <option value="zones/list">zones/list（列 Zone）</option>
+    <option value="users/current">users/current（当前用户）</option>
+  </select>
+  <label for="op-body">请求体（JSON）</label>
+  <textarea id="op-body"></textarea>
+  <p><button class="primary" id="run-op" disabled>执行</button></p>
+  <pre id="op-result">未执行。</pre>
+</details>
+
+<script>
+(function () {
+  var CONTAINER = 'iCloud.com.joe.familycalendar';
+  var ENV = 'development';
+  var API_TOKEN = 'c1adb1610b4ad68147fa211fac752007d1b193429d70d8214e161b597577aadf';
+  // 户主记录名：链接里的 ?owner= 参数优先，没有参数时用 Joe 的。
+  // App 设置页里的“连接 Muse”入口会带上当前用户的户主记录名。
+  var DEFAULT_OWNER = '_5d5014c3834195c1fc788dee93ec6292';
+  var OWNER_RECORD_NAME = DEFAULT_OWNER;
+  try {
+    var params = new URLSearchParams(window.location.search);
+    var ownerParam = params.get('owner');
+    if (ownerParam) { OWNER_RECORD_NAME = ownerParam; }
+  } catch (e) {}
+  var currentToken = null;
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  function setStatus(msg, ok) {
+    var el = $('auth-state');
+    el.textContent = msg;
+    el.className = ok === true ? 'ok' : (ok === false ? 'bad' : '');
+  }
+
+  // ---- 拦截发出的请求，从 URL 里取出 ckWebAuthToken ----
+  function captureFromUrl(url) {
+    if (!url || typeof url !== 'string') return;
+    var m = url.match(/[?&]ckWebAuthToken=([^&]+)/);
+    if (m) {
+      var t = decodeURIComponent(m[1]);
+      if (t && t !== currentToken) {
+        currentToken = t;
+        $('token-field').value = t;
+        $('copy-token').disabled = false;
+        $('run-op').disabled = false;
+      }
+    }
+  }
+  var origFetch = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    var url = (typeof input === 'string') ? input : (input && input.url);
+    captureFromUrl(url);
+    return origFetch(input, init);
+  };
+  var origOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    captureFromUrl(url);
+    return origOpen.apply(this, arguments);
+  };
+
+  // ---- 配置 CloudKit JS ----
+  var container = null;
+  function buildAuthConfig() {
+    return {
+      apiToken: API_TOKEN,
+      persist: true, // 会话 cookie：约两周内不用重新登录
+      signInButton: { id: 'apple-sign-in-button', theme: 'black' },
+      signOutButton: { id: 'apple-sign-out-button', theme: 'black' }
+      // 注意：不要加 signInCallbackURL。Dashboard 里这个 token 的登录回调
+      // 方式是 Post Message（弹窗模式），不是 URL Redirect。
+    };
+  }
+  function configureCloudKit() {
+    CloudKit.configure({
+      containers: [{
+        containerIdentifier: CONTAINER,
+        apiTokenAuth: buildAuthConfig(),
+        environment: ENV
+      }]
+    });
+    container = CloudKit.getDefaultContainer();
+  }
+  function wireAuth() {
+    container.setUpAuth().then(function (userIdentity) {
+      if (userIdentity) { onSignedIn(userIdentity); }
+      else { setStatus('未登录 — 请点上面的 Apple 登录按钮', false); }
+    }).catch(function (e) {
+      setStatus('登录检查失败：' + (e && e.message ? e.message : e), false);
+    });
+    container.whenUserSignsIn().then(onSignedIn);
+    container.whenUserSignsOut().then(onSignedOut);
+  }
+
+  function onSignedIn(userIdentity) {
+    setStatus('已登录 ✓', true);
+    var name = userIdentity && userIdentity.userRecordName;
+    $('user-record').textContent = name || '—';
+    // 登录后 CloudKit JS 已经发过带 token 的请求，拦截器一般已经拿到；
+    // 没拿到时主动触发一次只读查询，强制产生一次带 token 的请求。
+    setTimeout(function () {
+      if (!currentToken) {
+        container.privateCloudDatabase.performQuery(
+          { recordType: 'Event', resultsLimit: 1 }
+        ).catch(function () { /* 查询本身不重要，只要请求发出去 */ });
+      }
+    }, 500);
+  }
+  function onSignedOut() {
+    setStatus('未登录', false);
+    $('user-record').textContent = '—';
+    $('copy-token').disabled = true;
+    $('run-op').disabled = true;
+    currentToken = null;
+  }
+
+  // 高级操作框的默认请求体：查当前用户的日历事项。
+  function defaultOpBody() {
+    return JSON.stringify({
+      query: { recordType: 'Event' },
+      resultsLimit: 100,
+      zoneID: { zoneName: 'FamilyCalendarZone', ownerRecordName: OWNER_RECORD_NAME }
+    }, null, 2);
+  }
+  $('op-body').value = defaultOpBody();
+
+  configureCloudKit();
+  wireAuth();
+
+  // 打开页面后请尽快点登录；登录链接放久了会过期，过期就刷新页面再点。
+  // 不要用定时器反复跑 setUpAuth() 刷新链接——每次重跑都会把登录按钮
+  // 重新渲染成灰色不可点（2026-11-22 实测）。
+
+  // ---- 复制 token ----
+  $('copy-token').addEventListener('click', function () {
+    if (!currentToken) return;
+    var f = $('token-field');
+    f.type = 'text'; f.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(currentToken).catch(function () {});
+    }
+    f.type = 'password';
+    var cs = $('copy-state');
+    if (cs) {
+      cs.textContent = '已复制。请只粘贴到 Muse 给你的安全采集页，不要发在聊天里。';
+      cs.className = 'ok';
+    }
+  });
+
+  // ---- 高级：直接执行操作（token 不离开浏览器） ----
+  function runOp(retry) {
+    if (!currentToken) {
+      $('op-result').textContent = '还没有 token：请先登录。';
+      return;
+    }
+    var db = $('op-db').value;
+    var op = $('op-name').value;
+    var body;
+    try { body = JSON.parse($('op-body').value); }
+    catch (e) { $('op-result').textContent = '请求体不是合法 JSON：' + e.message; return; }
+    var qs = 'ckAPIToken=' + encodeURIComponent(API_TOKEN) +
+             '&ckWebAuthToken=' + encodeURIComponent(currentToken);
+    var url = 'https://api.apple-cloudkit.com/database/1/' + CONTAINER +
+              '/' + ENV + '/' + db + '/' + op + '?' + qs;
+    $('op-result').textContent = '执行中…';
+    origFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (resp) {
+      var rotated = null;
+      try { rotated = resp.headers.get('X-Apple-CloudKit-Web-Auth-Token'); } catch (e) {}
+      if (rotated) { currentToken = rotated; $('token-field').value = rotated; }
+      return resp.json().then(function (data) {
+        return { status: resp.status, data: data };
+      });
+    }).then(function (r) {
+      if ((r.status === 401 || r.status === 421) && !retry) {
+        $('op-result').textContent = 'token 过期，正在重新获取…';
+        return container.privateCloudDatabase.performQuery(
+          { recordType: 'Event', resultsLimit: 1 }
+        ).catch(function () {}).then(function () { runOp(true); });
+      }
+      $('op-result').textContent = 'HTTP ' + r.status + '\n' +
+        JSON.stringify(r.data, null, 2).slice(0, 8000);
+    }).catch(function (e) {
+      $('op-result').textContent = '请求失败：' + e.message;
+    });
+  }
+  $('run-op').addEventListener('click', function () { runOp(false); });
+})();
+</script>
+</body>
+</html>
