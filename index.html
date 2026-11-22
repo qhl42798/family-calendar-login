@@ -99,28 +99,6 @@
   需要重新登录一次，还是上面这几步。</p>
 </div>
 
-<details class="card">
-  <summary><b>高级：在浏览器里直接执行操作（可选）</b></summary>
-  <p class="muted">不需要把 token 传出来时，可以直接在本页执行 CloudKit 操作：
-  浏览器里已经登录了，操作直接以你的身份发出，token 不离开浏览器。</p>
-  <label for="op-db">数据库</label>
-  <select id="op-db">
-    <option value="private">private（我的私有库）</option>
-    <option value="shared">shared（共享库）</option>
-  </select>
-  <label for="op-name">操作</label>
-  <select id="op-name">
-    <option value="records/query" selected>records/query（查事项）</option>
-    <option value="records/modify">records/modify（写事项）</option>
-    <option value="zones/list">zones/list（列 Zone）</option>
-    <option value="users/current">users/current（当前用户）</option>
-  </select>
-  <label for="op-body">请求体（JSON）</label>
-  <textarea id="op-body"></textarea>
-  <p><button class="primary" id="run-op" disabled>执行</button></p>
-  <pre id="op-result">未执行。</pre>
-</details>
-
 <script>
 (function () {
   var CONTAINER = 'iCloud.com.joe.familycalendar';
@@ -155,7 +133,6 @@
         currentToken = t;
         $('token-field').value = t;
         $('copy-token').disabled = false;
-        $('run-op').disabled = false;
       }
     }
   }
@@ -222,19 +199,8 @@
     setStatus('未登录', false);
     $('user-record').textContent = '—';
     $('copy-token').disabled = true;
-    $('run-op').disabled = true;
     currentToken = null;
   }
-
-  // 高级操作框的默认请求体：查当前用户的日历事项。
-  function defaultOpBody() {
-    return JSON.stringify({
-      query: { recordType: 'Event' },
-      resultsLimit: 100,
-      zoneID: { zoneName: 'FamilyCalendarZone', ownerRecordName: OWNER_RECORD_NAME }
-    }, null, 2);
-  }
-  $('op-body').value = defaultOpBody();
 
   configureCloudKit();
   wireAuth();
@@ -281,47 +247,6 @@
     }
   });
 
-  // ---- 高级：直接执行操作（token 不离开浏览器） ----
-  function runOp(retry) {
-    if (!currentToken) {
-      $('op-result').textContent = '还没有 token：请先登录。';
-      return;
-    }
-    var db = $('op-db').value;
-    var op = $('op-name').value;
-    var body;
-    try { body = JSON.parse($('op-body').value); }
-    catch (e) { $('op-result').textContent = '请求体不是合法 JSON：' + e.message; return; }
-    var qs = 'ckAPIToken=' + encodeURIComponent(API_TOKEN) +
-             '&ckWebAuthToken=' + encodeURIComponent(currentToken);
-    var url = 'https://api.apple-cloudkit.com/database/1/' + CONTAINER +
-              '/' + ENV + '/' + db + '/' + op + '?' + qs;
-    $('op-result').textContent = '执行中…';
-    origFetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }).then(function (resp) {
-      var rotated = null;
-      try { rotated = resp.headers.get('X-Apple-CloudKit-Web-Auth-Token'); } catch (e) {}
-      if (rotated) { currentToken = rotated; $('token-field').value = rotated; }
-      return resp.json().then(function (data) {
-        return { status: resp.status, data: data };
-      });
-    }).then(function (r) {
-      if ((r.status === 401 || r.status === 421) && !retry) {
-        $('op-result').textContent = 'token 过期，正在重新获取…';
-        return container.privateCloudDatabase.performQuery(
-          { recordType: 'Event', resultsLimit: 1 }
-        ).catch(function () {}).then(function () { runOp(true); });
-      }
-      $('op-result').textContent = 'HTTP ' + r.status + '\n' +
-        JSON.stringify(r.data, null, 2).slice(0, 8000);
-    }).catch(function (e) {
-      $('op-result').textContent = '请求失败：' + e.message;
-    });
-  }
-  $('run-op').addEventListener('click', function () { runOp(false); });
 })();
 </script>
 </body>
