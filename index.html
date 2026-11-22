@@ -22,9 +22,9 @@
      不碰密码）。登录后本页通过拦截 CloudKit JS 发出的请求，
      从 URL 里取出 ckWebAuthToken。
   2. 点“复制这句话”，粘贴到 Muse 对话里发过去，等 Muse 发给你
-     安全采集链接。不要把 token 发在聊天里。
+     安全采集链接。
   3. 回到本页面，点“复制 token”，打开第 2 步里 Muse 发给你的
-     安全采集链接，把 token 粘贴进去。
+     安全采集链接，把 token 粘贴进去。不要把 token 发在聊天里。
 
   注意：不要加 signInCallbackURL。Dashboard 里这个 token 的登录
   回调方式是 Post Message（弹窗模式），不是 URL Redirect。
@@ -79,7 +79,7 @@
   <h2>2. 复制下面这句话，发给 Muse</h2>
   <p>点下面按钮复制这句话，回到 Muse 对话里粘贴、发过去。Muse 看了就
   知道是哪个 App、要干什么，会发给你一个安全采集链接。安全链接生成后，
-  回到这个页面，进行第 3 步。不要把 token 发在聊天里。</p>
+  回到这个页面，进行第 3 步。</p>
   <p><textarea id="sentence-field" readonly rows="3" style="min-height: 64px;">我要连接 Family Smart Calendar，我刚用 Apple ID 登录了，请发给我安全采集链接，我再把 CloudKit 会话 token 粘贴进去。</textarea></p>
   <p><button class="primary" id="copy-sentence">复制这句话</button>
   <span id="sentence-state" class="muted"></span></p>
@@ -89,7 +89,7 @@
   <h2>3. 回到这个页面，复制 token，粘贴到安全链接里</h2>
   <p>Muse 发给你安全采集链接以后，回到这个页面（它还在 Safari 后台开着，
   不用重新登录），点下面按钮复制 token。再打开 Muse 发给你的安全链接，
-  把 token 粘贴进去，就完成了。</p>
+  把 token 粘贴进去，就完成了。不要把 token 发在聊天里。</p>
   <p><input id="token-field" type="password" readonly placeholder="登录后这里会有 token（不显示明文）">
   <button class="primary" id="copy-token" disabled>复制 token</button>
   <span id="copy-state" class="muted"></span></p>
