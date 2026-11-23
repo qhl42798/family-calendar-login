@@ -16,10 +16,9 @@
   共用的，写死在本页即可（API Token 只标识容器，不授予权限）。
 
   流程（户主三步；管理员先做第 -1 步前提，再走同样的三步）：
-  -1. 前提，仅管理员（家人）：先把 App 设置页里“复制给 Muse 的设置信息”
-     的内容发给自己的 Muse——这是管理员的 Muse 能用的前提，没有它，
-     管理员的 Muse 不知道写进谁的日历、哪个库。发完再从第 1 步开始。
-     户主跳过这一步。
+  -1. 前提，仅管理员（家人）：直接在本页复制设置信息发给自己的 Muse——
+     这是管理员的 Muse 能用的前提，没有它，管理员的 Muse 不知道写进
+     谁的日历、哪个库。发完再从第 1 步开始。户主跳过这一步。
   1. 点“用 Apple ID 登录”（苹果官方登录页，支持 Face ID，Muse
      不碰密码）。登录后本页通过拦截 CloudKit JS 发出的请求，
      从 URL 里取出 ckWebAuthToken。
@@ -63,11 +62,14 @@
 <div class="card">
   <h2>-1. 前提：仅管理员（家人）先做这一步，户主跳过</h2>
   <p>如果你是户主，直接从第 1 步开始，不用看这一步。如果你是家人
-  （管理员，App 里能改日程），先打开 App 设置页，点「复制给 Muse
-  的设置信息」，把复制到的内容发给自己的 Muse。这是管理员用 Muse
-  的前提：没有这段设置，你的 Muse 不知道写进谁的日历、哪个库，
-  后面三步做了也没用。发完再从第 1 步开始，后面三步和户主完全一样。
-  只能查看的家人不用连接 Muse，Muse 也不能替你改日程。</p>
+  （管理员，App 里能改日程），点下面按钮复制设置信息，发给自己的
+  Muse。这是管理员用 Muse 的前提：没有这段设置，你的 Muse 不知道
+  写进谁的日历、哪个库，后面三步做了也没用。发完再从第 1 步开始，
+  后面三步和户主完全一样。只能查看的家人不用连接 Muse，Muse 也
+  不能替你改日程。</p>
+  <p><textarea id="setup-info-field" readonly rows="8" style="min-height: 150px;"></textarea></p>
+  <p><button class="primary" id="copy-setup-info">复制设置信息</button>
+  <span id="setup-info-state" class="muted"></span></p>
 </div>
 
 <div class="card">
@@ -226,6 +228,44 @@
     if (cs) {
       cs.textContent = '已复制。请粘贴到第 2 步里 Muse 发给你的安全采集链接里，不要发在聊天里。';
       cs.className = 'ok';
+    }
+  });
+
+  // ---- 第 -1 步：设置信息（管理员直接在本页复制，不用回 App 设置页） ----
+  // 文本与 App 设置页「复制给 Muse 的设置信息」同款；数据库固定写共享库
+  // （这一步只针对管理员）；Zone 主人记录名取链接 ?owner= 参数，缺省为 Joe 的。
+  // “我的记录名”不放进来：复制时还没登录、拿不到，而且只是参考，
+  // Muse 写日历靠的是你自己的 Apple ID 登录会话，不靠它。
+  function buildSetupInfo() {
+    return [
+      'Family Smart Calendar CloudKit 写入信息',
+      '容器：' + CONTAINER,
+      '环境：' + ENV,
+      'Zone：FamilyCalendarZone',
+      '数据库：共享库',
+      'Zone 主人记录名：' + OWNER_RECORD_NAME,
+      '记录类型：Event（字段见 MUSE_WRITE_API.md）',
+      '注意：Muse 用我自己的 Apple ID 网页登录来写，不用户主的账号和密码。'
+    ].join('\n');
+  }
+  $('setup-info-field').value = buildSetupInfo();
+  $('copy-setup-info').addEventListener('click', function () {
+    var text = $('setup-info-field').value;
+    function done() {
+      var ss = $('setup-info-state');
+      if (ss) {
+        ss.textContent = '已复制。发给自己的 Muse，再从第 1 步开始。';
+        ss.className = 'ok';
+      }
+    }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(done).catch(function () { fallbackCopy(); });
+    } else { fallbackCopy(); }
+    function fallbackCopy() {
+      var f = $('setup-info-field');
+      f.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      done();
     }
   });
 
