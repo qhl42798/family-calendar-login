@@ -50,55 +50,59 @@
   label { font-size: 13px; color: #6e6e73; display: block; margin: 8px 0 4px; }
   #apple-sign-in-button, #apple-sign-out-button { margin: 8px 0; }
   summary { cursor: pointer; }
+  .lang-switch { text-align: right; margin-top: 8px; }
+  .lang-switch button { padding: 4px 10px; font-size: 13px; }
+  .lang-switch button.active { background: #0071e3; color: #fff; border-color: #0071e3; }
 </style>
 </head>
 <body>
-<h1>Family Smart Calendar — 连接 Muse</h1>
-<p class="muted">让 Muse 帮你管理日历。先用你自己的 Apple ID 登录（苹果官方登录页，
+<div class="lang-switch"><button id="lang-zh" type="button">中文</button> <span class="muted">/</span> <button id="lang-en" type="button">English</button></div>
+<h1 data-i18n="pageTitle">Family Smart Calendar — 连接 Muse</h1>
+<p class="muted" data-i18n="intro">让 Muse 帮你管理日历。先用你自己的 Apple ID 登录（苹果官方登录页，
 支持 Face ID，Muse 不会看到你的密码），再把登录后得到的会话 token
 交给 Muse。户主分三步；家人（管理员）先做一个第 0 步前提，做完再走
 同样的三步。</p>
 
 <div class="card">
-  <h2>0. 前提：仅管理员（家人）先做这一步，户主跳过</h2>
-  <p>如果你是户主，直接从第 1 步开始，不用看这一步。如果你是家人
+  <h2 data-i18n="step0Title">0. 前提：仅管理员（家人）先做这一步，户主跳过</h2>
+  <p data-i18n="step0Body">如果你是户主，直接从第 1 步开始，不用看这一步。如果你是家人
   （管理员，App 里能改日程），点下面按钮复制设置信息，发给自己的
   Muse。这是管理员用 Muse 的前提：没有这段设置，你的 Muse 不知道
   写进谁的日历、哪个库，后面三步做了也没用。发完再从第 1 步开始，
   后面三步和户主完全一样。只能查看的家人不用连接 Muse，Muse 也
   不能替你改日程。</p>
   <p><textarea id="setup-info-field" readonly rows="8" style="min-height: 150px;"></textarea></p>
-  <p><button class="primary" id="copy-setup-info">复制设置信息</button>
+  <p><button class="primary" id="copy-setup-info" data-i18n="copySetupInfo">复制设置信息</button>
   <span id="setup-info-state" class="muted"></span></p>
 </div>
 
 <div class="card">
-  <h2>1. 用 Apple ID 登录</h2>
+  <h2 data-i18n="step1Title">1. 用 Apple ID 登录</h2>
   <div id="apple-sign-in-button"></div>
   <div id="apple-sign-out-button"></div>
-  <p>登录状态：<span id="auth-state">正在检查…</span></p>
-  <p>用户记录名：<span id="user-record">—</span></p>
+  <p><span data-i18n="signInStatusLabel">登录状态：</span><span id="auth-state">正在检查…</span></p>
+  <p><span data-i18n="userRecordLabel">用户记录名：</span><span id="user-record">—</span></p>
 </div>
 
 <div class="card">
-  <h2>2. 复制下面这句话，发给 Muse</h2>
-  <p>点下面按钮复制这句话，回到 Muse 对话里粘贴、发过去。Muse 看了就
+  <h2 data-i18n="step2Title">2. 复制下面这句话，发给 Muse</h2>
+  <p data-i18n="step2Body">点下面按钮复制这句话，回到 Muse 对话里粘贴、发过去。Muse 看了就
   知道是哪个 App、要干什么，会发给你一个安全采集链接。安全链接生成后，
   回到这个页面，进行第 3 步。</p>
   <p><textarea id="sentence-field" readonly rows="3" style="min-height: 64px;">我要连接 Family Smart Calendar，我刚用 Apple ID 登录了，请发给我安全采集链接，我再把 CloudKit 会话 token 粘贴进去。</textarea></p>
-  <p><button class="primary" id="copy-sentence">复制这句话</button>
+  <p><button class="primary" id="copy-sentence" data-i18n="copySentence">复制这句话</button>
   <span id="sentence-state" class="muted"></span></p>
 </div>
 
 <div class="card">
-  <h2>3. 回到这个页面，复制 token，粘贴到安全链接里</h2>
-  <p>Muse 发给你安全采集链接以后，回到这个页面（它还在 Safari 后台开着，
+  <h2 data-i18n="step3Title">3. 回到这个页面，复制 token，粘贴到安全链接里</h2>
+  <p data-i18n="step3Body">Muse 发给你安全采集链接以后，回到这个页面（它还在 Safari 后台开着，
   不用重新登录），点下面按钮复制 token。再打开 Muse 发给你的安全链接，
   把 token 粘贴进去，就完成了。不要把 token 发在聊天里。</p>
-  <p><input id="token-field" type="password" readonly placeholder="登录后这里会有 token（不显示明文）">
-  <button class="primary" id="copy-token" disabled>复制 token</button>
+  <p><input id="token-field" type="password" readonly data-i18n-ph="tokenPlaceholder" placeholder="登录后这里会有 token（不显示明文）">
+  <button class="primary" id="copy-token" disabled data-i18n="copyToken">复制 token</button>
   <span id="copy-state" class="muted"></span></p>
-  <p class="muted">注意顺序：先复制第 2 步那句话，再复制 token。每次只复制一个东西，
+  <p class="muted" data-i18n="orderNote">注意顺序：先复制第 2 步那句话，再复制 token。每次只复制一个东西，
   token 最后再复制，不然会被顶掉。粘贴好以后，Muse 就能读写你的日历了。
   由于苹果的保护政策，登录信息不能长期保存；如果过期了，连接 Muse
   需要重新登录一次，还是上面这几步。</p>
@@ -122,11 +126,133 @@
 
   var $ = function (id) { return document.getElementById(id); };
 
-  function setStatus(msg, ok) {
+  // ---- 双语（中文 / English）----
+  // 语言决定顺序：链接 ?lang= 参数（en 或 zh）优先；没有参数时按浏览器语言
+  // （navigator.language 以 zh 开头 → 中文，否则英文）。页面右上角可手动切换，
+  // 切换后不刷新页面，并把选择写进链接的 ?lang= 参数。
+  // App 设置页的“连接 Muse”入口会按 App 内语言设置带上 ?lang= 参数。
+  // 注意：这里只翻界面文案，不动任何登录/复制/token 逻辑。
+  var I18N = {
+    zh: {
+      pageTitle: "Family Smart Calendar — 连接 Muse",
+      intro: "让 Muse 帮你管理日历。先用你自己的 Apple ID 登录（苹果官方登录页，支持 Face ID，Muse 不会看到你的密码），再把登录后得到的会话 token 交给 Muse。户主分三步；家人（管理员）先做一个第 0 步前提，做完再走同样的三步。",
+      step0Title: "0. 前提：仅管理员（家人）先做这一步，户主跳过",
+      step0Body: "如果你是户主，直接从第 1 步开始，不用看这一步。如果你是家人（管理员，App 里能改日程），点下面按钮复制设置信息，发给自己的 Muse。这是管理员用 Muse 的前提：没有这段设置，你的 Muse 不知道写进谁的日历、哪个库，后面三步做了也没用。发完再从第 1 步开始，后面三步和户主完全一样。只能查看的家人不用连接 Muse，Muse 也不能替你改日程。",
+      copySetupInfo: "复制设置信息",
+      step1Title: "1. 用 Apple ID 登录",
+      signInStatusLabel: "登录状态：",
+      userRecordLabel: "用户记录名：",
+      step2Title: "2. 复制下面这句话，发给 Muse",
+      step2Body: "点下面按钮复制这句话，回到 Muse 对话里粘贴、发过去。Muse 看了就知道是哪个 App、要干什么，会发给你一个安全采集链接。安全链接生成后，回到这个页面，进行第 3 步。",
+      sentence: "我要连接 Family Smart Calendar，我刚用 Apple ID 登录了，请发给我安全采集链接，我再把 CloudKit 会话 token 粘贴进去。",
+      copySentence: "复制这句话",
+      step3Title: "3. 回到这个页面，复制 token，粘贴到安全链接里",
+      step3Body: "Muse 发给你安全采集链接以后，回到这个页面（它还在 Safari 后台开着，不用重新登录），点下面按钮复制 token。再打开 Muse 发给你的安全链接，把 token 粘贴进去，就完成了。不要把 token 发在聊天里。",
+      tokenPlaceholder: "登录后这里会有 token（不显示明文）",
+      copyToken: "复制 token",
+      orderNote: "注意顺序：先复制第 2 步那句话，再复制 token。每次只复制一个东西，token 最后再复制，不然会被顶掉。粘贴好以后，Muse 就能读写你的日历了。由于苹果的保护政策，登录信息不能长期保存；如果过期了，连接 Muse 需要重新登录一次，还是上面这几步。",
+      statusChecking: "正在检查…",
+      statusNotSignedIn: "未登录 — 请点上面的 Apple 登录按钮",
+      statusCheckFailed: "登录检查失败：",
+      statusSignedIn: "已登录 ✓",
+      statusSignedOut: "未登录",
+      copiedToken: "已复制。请粘贴到第 2 步里 Muse 发给你的安全采集链接里，不要发在聊天里。",
+      copiedSetup: "已复制。发给自己的 Muse，再从第 1 步开始。",
+      copiedSentence: "已复制。回到 Muse 对话里粘贴、发过去；安全链接生成后，回到这个页面做第 3 步。",
+      setupTitle: "Family Smart Calendar CloudKit 写入信息",
+      setupContainer: "容器：",
+      setupEnv: "环境：",
+      setupZone: "Zone：",
+      setupDatabase: "数据库：共享库",
+      setupOwner: "Zone 主人记录名：",
+      setupRecordType: "记录类型：Event（字段见 MUSE_WRITE_API.md）",
+      setupNote: "注意：Muse 用我自己的 Apple ID 网页登录来写，不用户主的账号和密码。"
+    },
+    en: {
+      pageTitle: "Family Smart Calendar — Connect Muse",
+      intro: "Let Muse manage your calendar for you. First sign in with your own Apple ID (Apple's official sign-in page, Face ID supported — Muse never sees your password), then hand the session token you get after signing in to Muse. Owners do three steps; family members (admins) first do a Step 0 prerequisite, then the same three steps.",
+      step0Title: "0. Prerequisite: family members (admins) only — owners skip this step",
+      step0Body: "If you are the owner, start from Step 1 and skip this step. If you are a family member (an admin who can edit the calendar in the app), tap the button below to copy the setup info and send it to your own Muse. This is the prerequisite for an admin to use Muse: without this setup info, your Muse won't know whose calendar or which database to write to, and the three steps below would be useless. Once you've sent it, start from Step 1 — the three steps are exactly the same as for the owner. Family members with view-only access don't need to connect Muse; Muse can't change the calendar for you.",
+      copySetupInfo: "Copy setup info",
+      step1Title: "1. Sign in with your Apple ID",
+      signInStatusLabel: "Sign-in status: ",
+      userRecordLabel: "User record name: ",
+      step2Title: "2. Copy the sentence below and send it to Muse",
+      step2Body: "Tap the button below to copy this sentence, then go back to your Muse chat, paste it and send it. Muse will know which app this is and what you want, and will send you a secure collection link. Once the secure link is ready, come back to this page for Step 3.",
+      sentence: "I want to connect Family Smart Calendar. I just signed in with my Apple ID. Please send me a secure collection link, and I'll paste my CloudKit session token into it.",
+      copySentence: "Copy this sentence",
+      step3Title: "3. Come back to this page, copy the token, and paste it into the secure link",
+      step3Body: "After Muse sends you the secure collection link, come back to this page (it's still open in Safari in the background — no need to sign in again) and tap the button below to copy the token. Then open the secure link Muse sent you and paste the token in. That's it. Don't send the token in chat.",
+      tokenPlaceholder: "The token will appear here after you sign in (not shown in plain text)",
+      copyToken: "Copy token",
+      orderNote: "Mind the order: copy the sentence in Step 2 first, then the token. Copy only one thing at a time, and copy the token last — otherwise it will be pushed out of the clipboard. Once pasted, Muse can read and write your calendar. Because of Apple's protection policy, sign-in info can't be kept long-term; if it expires, just sign in again to reconnect Muse — the same steps as above.",
+      statusChecking: "Checking…",
+      statusNotSignedIn: "Not signed in — please tap the Apple sign-in button above",
+      statusCheckFailed: "Sign-in check failed: ",
+      statusSignedIn: "Signed in ✓",
+      statusSignedOut: "Not signed in",
+      copiedToken: "Copied. Paste it into the secure collection link Muse sent you in Step 2 — don't send it in chat.",
+      copiedSetup: "Copied. Send it to your own Muse, then start from Step 1.",
+      copiedSentence: "Copied. Go back to your Muse chat, paste it and send it; once the secure link is ready, come back to this page for Step 3.",
+      setupTitle: "Family Smart Calendar CloudKit write info",
+      setupContainer: "Container: ",
+      setupEnv: "Environment: ",
+      setupZone: "Zone: ",
+      setupDatabase: "Database: shared database",
+      setupOwner: "Zone owner record name: ",
+      setupRecordType: "Record type: Event (fields: see MUSE_WRITE_API.md)",
+      setupNote: "Note: Muse writes using my own Apple ID web sign-in, not the owner's account or password."
+    }
+  };
+  var LANG = 'zh';
+  try {
+    var langParam = new URLSearchParams(window.location.search).get('lang');
+    if (langParam === 'en' || langParam === 'zh') { LANG = langParam; }
+    else { LANG = ((navigator.language || '').toLowerCase().indexOf('zh') === 0) ? 'zh' : 'en'; }
+  } catch (e) {
+    LANG = ((navigator.language || '').toLowerCase().indexOf('zh') === 0) ? 'zh' : 'en';
+  }
+  function t(key) {
+    var d = I18N[LANG] || I18N.zh;
+    return d[key] !== undefined ? d[key] : (I18N.zh[key] !== undefined ? I18N.zh[key] : key);
+  }
+  // 上一次登录状态（用 key 存，切换语言时能按新语言重写）。
+  var lastStatus = { key: 'statusChecking', ok: null, extra: '' };
+  function setStatus(key, ok, extra) {
+    lastStatus = { key: key, ok: ok, extra: extra || '' };
     var el = $('auth-state');
-    el.textContent = msg;
+    el.textContent = t(key) + (extra || '');
     el.className = ok === true ? 'ok' : (ok === false ? 'bad' : '');
   }
+  function applyLang() {
+    document.documentElement.lang = LANG === 'en' ? 'en' : 'zh-Hans';
+    document.title = t('pageTitle');
+    var els = document.querySelectorAll('[data-i18n]');
+    for (var i = 0; i < els.length; i++) {
+      els[i].textContent = t(els[i].getAttribute('data-i18n'));
+    }
+    var phs = document.querySelectorAll('[data-i18n-ph]');
+    for (var j = 0; j < phs.length; j++) {
+      phs[j].setAttribute('placeholder', t(phs[j].getAttribute('data-i18n-ph')));
+    }
+    $('sentence-field').value = t('sentence');
+    $('setup-info-field').value = buildSetupInfo();
+    setStatus(lastStatus.key, lastStatus.ok, lastStatus.extra);
+    $('lang-zh').classList.toggle('active', LANG === 'zh');
+    $('lang-en').classList.toggle('active', LANG === 'en');
+  }
+  function setLang(lang) {
+    LANG = lang;
+    applyLang();
+    try {
+      var u = new URL(window.location.href);
+      u.searchParams.set('lang', lang);
+      history.replaceState(null, '', u.toString());
+    } catch (e) {}
+  }
+  $('lang-zh').addEventListener('click', function () { setLang('zh'); });
+  $('lang-en').addEventListener('click', function () { setLang('en'); });
+  applyLang();
 
   // ---- 拦截发出的请求，从 URL 里取出 ckWebAuthToken ----
   function captureFromUrl(url) {
@@ -178,16 +304,16 @@
   function wireAuth() {
     container.setUpAuth().then(function (userIdentity) {
       if (userIdentity) { onSignedIn(userIdentity); }
-      else { setStatus('未登录 — 请点上面的 Apple 登录按钮', false); }
+      else { setStatus('statusNotSignedIn', false); }
     }).catch(function (e) {
-      setStatus('登录检查失败：' + (e && e.message ? e.message : e), false);
+      setStatus('statusCheckFailed', false, (e && e.message ? e.message : e));
     });
     container.whenUserSignsIn().then(onSignedIn);
     container.whenUserSignsOut().then(onSignedOut);
   }
 
   function onSignedIn(userIdentity) {
-    setStatus('已登录 ✓', true);
+    setStatus('statusSignedIn', true);
     var name = userIdentity && userIdentity.userRecordName;
     $('user-record').textContent = name || '—';
     // 登录后 CloudKit JS 已经发过带 token 的请求，拦截器一般已经拿到；
@@ -201,7 +327,7 @@
     }, 500);
   }
   function onSignedOut() {
-    setStatus('未登录', false);
+    setStatus('statusSignedOut', false);
     $('user-record').textContent = '—';
     $('copy-token').disabled = true;
     currentToken = null;
@@ -226,7 +352,7 @@
     f.type = 'password';
     var cs = $('copy-state');
     if (cs) {
-      cs.textContent = '已复制。请粘贴到第 2 步里 Muse 发给你的安全采集链接里，不要发在聊天里。';
+      cs.textContent = t('copiedToken');
       cs.className = 'ok';
     }
   });
@@ -238,14 +364,14 @@
   // Muse 写日历靠的是你自己的 Apple ID 登录会话，不靠它。
   function buildSetupInfo() {
     return [
-      'Family Smart Calendar CloudKit 写入信息',
-      '容器：' + CONTAINER,
-      '环境：' + ENV,
-      'Zone：FamilyCalendarZone',
-      '数据库：共享库',
-      'Zone 主人记录名：' + OWNER_RECORD_NAME,
-      '记录类型：Event（字段见 MUSE_WRITE_API.md）',
-      '注意：Muse 用我自己的 Apple ID 网页登录来写，不用户主的账号和密码。'
+      t('setupTitle'),
+      t('setupContainer') + CONTAINER,
+      t('setupEnv') + ENV,
+      t('setupZone') + 'FamilyCalendarZone',
+      t('setupDatabase'),
+      t('setupOwner') + OWNER_RECORD_NAME,
+      t('setupRecordType'),
+      t('setupNote')
     ].join('\n');
   }
   $('setup-info-field').value = buildSetupInfo();
@@ -254,7 +380,7 @@
     function done() {
       var ss = $('setup-info-state');
       if (ss) {
-        ss.textContent = '已复制。发给自己的 Muse，再从第 1 步开始。';
+        ss.textContent = t('copiedSetup');
         ss.className = 'ok';
       }
     }
@@ -275,7 +401,7 @@
     function done() {
       var ss = $('sentence-state');
       if (ss) {
-        ss.textContent = '已复制。回到 Muse 对话里粘贴、发过去；安全链接生成后，回到这个页面做第 3 步。';
+        ss.textContent = t('copiedSentence');
         ss.className = 'ok';
       }
     }
