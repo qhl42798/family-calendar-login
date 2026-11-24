@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Family Smart Calendar — 连接 Muse</title>
+<!--
+  Family Smart Calendar — 连接 Muse（Supabase 登录页，Option A）
+
+  用途：让日历的用户用自己的 Supabase 账号登录一次，拿到这个会话的
+  refresh token，交给 Muse，让 Muse 能以该用户的身份读写 Supabase
+  里的家庭日历（PostgREST，RLS 按该用户的家庭成员身份拦截）。
+
+  项目：family-smart-calendar（Sydney）
+  https://lhqmgwvjivrpenppscah.supabase.co
+  下面 SUPABASE_URL / SUPABASE_ANON_KEY 里的 anon key 是 publishable key
+  （公开的，App 里也有同一把；真正的防线是 RLS，不是这把 key）。
+
+  流程（三步）：
+  1. 登录：邮箱 + 密码（登录或注册），或点 Google / Apple 按钮走 OAuth
+     （PKCE；登录成功后 Supabase 会跳回本页，页面自动完成会话交接）。
+     App 设置页“连接 Muse”点开的链接会带 ?family_id= 和 ?lang= 参数。
+  2. 点“复制这句话”，粘贴到 Muse 对话里发过去，等 Muse 发给你
+     安全采集链接。
+  3. 回到这个页面，点“复制 refresh token”，打开第 2 步里 Muse 发给你的
+     安全采集链接，把 token 粘贴进去。不要把 token 发在聊天里。
+
+  注意：
+  - refresh token 长期有效，Muse 靠它自动续 access token；不要把它
+    发给任何人，也不要截图发出去。
+  - 在本页点“退出登录”会吊销已交给 Muse 的 token（需要重新连接才行），
+    所以连好以后不要在这里点退出。
+  - OAuth 跳转地址必须是 Dashboard → Authentication → URL Configuration
+    → Redirect URLs 里登记过的本页地址：
+    https://qhl42798.github.io/family-calendar-login/supabase.html
+    （没登记时 Google / Apple 登录会报错，邮箱登录不受影响）。
+  - Google 提供商须在 Dashboard 里开通（配好 OAuth Client）才能用；
+    没开通时点 Google 按钮会报错，改用邮箱登录即可。
+-->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 640px; margin: 24px auto; padding: 0 16px; line-height: 1.6;
+         color: #1d1d1f; }
+  h1 { font-size: 20px; } h2 { font-size: 16px; margin-top: 28px; }
+  .card { border: 1px solid #d2d2d7; border-radius: 12px; padding: 16px; margin: 12px 0; }
+  .ok { color: #1d7a1d; } .bad { color: #b3261e; } .muted { color: #6e6e73; font-size: 13px; }
+  .warn { color: #b3261e; font-size: 13px; }
+  button { font-size: 15px; padding: 8px 16px; border-radius: 8px; border: 1px solid #d2d2d7;
+           background: #f5f5f7; cursor: pointer; }
+  button.primary { background: #0071e3; color: #fff; border-color: #0071e3; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  input, textarea { font-size: 14px; padding: 6px 8px; border: 1px solid #d2d2d7;
+           border-radius: 8px; width: 100%; box-sizing: border-box; }
+  textarea { font-family: ui-monospace, Menlo, monospace; min-height: 120px; }
+  label { font-size: 13px; color: #6e6e73; display: block; margin: 8px 0 4px; }
+  .oauth-row { display: flex; gap: 8px; margin: 8px 0; }
+  .oauth-row button { flex: 1; }
+  .lang-switch { text-align: right; margin-top: 8px; }
+  .lang-switch button { padding: 4px 10px; font-size: 13px; }
+  .lang-switch button.active { background: #0071e3; color: #fff; border-color: #0071e3; }
+</style>
+</head>
+<body>
+<div class="lang-switch"><button id="lang-zh" type="button">中文</button> <span class="muted">/</span> <button id="lang-en" type="button">English</button></div>
+<h1 data-i18n="pageTitle">Family Smart Calendar — 连接 Muse</h1>
+<p class="muted" data-i18n="intro">让 Muse 帮你管理日历。先用你自己的 Supabase 账号登录一次（就是 App 里
+登录用的那个账号），再把登录后得到的 refresh token 交给 Muse。登录一次
+就行，Muse 会自动续，不用反复登录。</p>
+
+<div class="card">
+  <h2 data-i18n="step1Title">1. 登录</h2>
+  <p><span data-i18n="signInStatusLabel">登录状态：</span><span id="auth-state">正在检查…</span></p>
+  <p id="signed-in-line" style="display:none;"><span data-i18n="signedInAsLabel">已登录账号：</span><span id="signed-in-email">—</span></p>
+  <p id="family-line" style="display:none;"><span data-i18n="familyIdLabel">家庭 ID：</span><span id="family-id">—</span></p>
+
+  <div id="signin-form">
+    <label for="email" data-i18n="emailLabel">邮箱</label>
+    <input id="email" type="email" autocomplete="email" placeholder="you@example.com">
+    <label for="password" data-i18n="passwordLabel">密码</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <div id="signup-name-row" style="display:none;">
+      <label for="display-name" data-i18n="displayNameLabel">名字（注册时填，家里人能看到）</label>
+      <input id="display-name" type="text" autocomplete="name">
+    </div>
+    <p>
+      <button class="primary" id="btn-signin" data-i18n="signIn">登录</button>
+      <button id="btn-signup" data-i18n="signUp">注册新账号</button>
+      <span id="auth-error" class="bad"></span>
+    </p>
+    <p class="muted" data-i18n="emailNote">邮箱登录直接用 App 里注册的账号。还没账号？点“注册新账号”，
+    填邮箱、密码和名字就能注册（内测期间注册完直接登录，不用验证邮箱）。</p>
+    <div class="oauth-row">
+      <button id="btn-google" type="button">Google</button>
+      <button id="btn-apple" type="button"> Apple</button>
+    </div>
+    <p class="muted" data-i18n="oauthNote">Google / Apple 登录会跳到对应页面，登录成功后自动跳回本页。
+    如果点完报错（比如提供商还没开通），改用上面的邮箱登录。</p>
+  </div>
+  <p id="signout-row" style="display:none;">
+    <button id="btn-signout" data-i18n="signOut">退出登录</button>
+    <span class="warn" data-i18n="signOutWarn">注意：退出登录会吊销已交给 Muse 的 token，Muse 就写不了日历了，
+    需要重新连接。连好以后不要在这里点退出。</span>
+  </p>
+</div>
+
+<div class="card">
+  <h2 data-i18n="step2Title">2. 复制下面这句话，发给 Muse</h2>
+  <p data-i18n="step2Body">点下面按钮复制这句话，回到 Muse 对话里粘贴、发过去。Muse 看了就
+  知道是哪个 App、要干什么，会发给你一个安全采集链接。安全链接生成后，
+  回到这个页面，进行第 3 步。</p>
+  <p><textarea id="sentence-field" readonly rows="3" style="min-height: 64px;"></textarea></p>
+  <p><button class="primary" id="copy-sentence" data-i18n="copySentence">复制这句话</button>
+  <span id="sentence-state" class="muted"></span></p>
+</div>
+
+<div class="card">
+  <h2 data-i18n="step3Title">3. 回到这个页面，复制 refresh token，粘贴到安全链接里</h2>
+  <p data-i18n="step3Body">Muse 发给你安全采集链接以后，回到这个页面（它还在 Safari 后台开着，
+  不用重新登录），点下面按钮复制 token。再打开 Muse 发给你的安全链接，
+  把 token 粘贴进去，就完成了。不要把 token 发在聊天里，也不要截图发给别人。</p>
+  <p><input id="token-field" type="password" readonly data-i18n-ph="tokenPlaceholder" placeholder="登录后这里会有 refresh token（不显示明文）">
+  <button class="primary" id="copy-token" disabled data-i18n="copyToken">复制 refresh token</button>
+  <span id="copy-state" class="muted"></span></p>
+  <p class="muted" data-i18n="orderNote">注意顺序：先复制第 2 步那句话，再复制 token。每次只复制一个东西，
+  token 最后再复制，不然会被顶掉。粘贴好以后，Muse 就能读写你的日历了。
+  这个 token 长期有效，Muse 会自己续；如果以后想断开，让 Muse 删掉它，
+  或者在这里点“退出登录”（会吊销 token）。</p>
+</div>
+
+<script>
+(function () {
+  var SUPABASE_URL = 'https://lhqmgwvjivrpenppscah.supabase.co';
+  var SUPABASE_ANON_KEY = 'sb_publishable__3D5cpc22vNh4zMtGT075A_2G-zgBl8';
+  // OAuth 跳回地址：必须是 Dashboard 里登记过的本页裸地址（不带参数），
+  // 否则 Supabase 会拒绝跳转。family_id / lang 在跳转前存进 localStorage，
+  // 跳回来再恢复（见下面 REDIRECT_KEY）。
+  var PAGE_URL = 'https://qhl42798.github.io/family-calendar-login/supabase.html';
+  var REDIRECT_KEY = 'fsc-connect-redirect';
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ---- 链接参数：?family_id=（App 设置页带过来）与 ?lang= ----
+  var FAMILY_ID = null;
+  try {
+    var params = new URLSearchParams(window.location.search);
+    FAMILY_ID = params.get('family_id') || null;
+    // OAuth 跳回来时参数丢了：从跳转前存的 localStorage 恢复。
+    if (!FAMILY_ID) {
+      try {
+        var saved = JSON.parse(localStorage.getItem(REDIRECT_KEY) || 'null');
+        if (saved && saved.family_id) { FAMILY_ID = saved.family_id; }
+      } catch (e) {}
+    }
+  } catch (e) {}
+
+  // ---- 双语（中文 / English）----
+  // 语言决定顺序：链接 ?lang= 参数（en 或 zh）优先；没有参数时按浏览器语言
+  // （navigator.language 以 zh 开头 → 中文，否则英文）。页面右上角可手动切换，
+  // 切换后不刷新页面，并把选择写进链接的 ?lang= 参数。
+  // App 设置页的“连接 Muse”入口会按 App 内语言设置带上 ?lang= 参数。
+  // 注意：这里只翻界面文案，不动任何登录/复制/token 逻辑。
+  var I18N = {
+    zh: {
+      pageTitle: "Family Smart Calendar — 连接 Muse",
+      intro: "让 Muse 帮你管理日历。先用你自己的 Supabase 账号登录一次（就是 App 里登录用的那个账号），再把登录后得到的 refresh token 交给 Muse。登录一次就行，Muse 会自动续，不用反复登录。",
+      step1Title: "1. 登录",
+      signInStatusLabel: "登录状态：",
+      signedInAsLabel: "已登录账号：",
+      familyIdLabel: "家庭 ID：",
+      emailLabel: "邮箱",
+      passwordLabel: "密码",
+      displayNameLabel: "名字（注册时填，家里人能看到）",
+      signIn: "登录",
+      signUp: "注册新账号",
+      emailNote: "邮箱登录直接用 App 里注册的账号。还没账号？点“注册新账号”，填邮箱、密码和名字就能注册（内测期间注册完直接登录，不用验证邮箱）。",
+      oauthNote: "Google / Apple 登录会跳到对应页面，登录成功后自动跳回本页。如果点完报错（比如提供商还没开通），改用上面的邮箱登录。",
+      signOut: "退出登录",
+      signOutWarn: "注意：退出登录会吊销已交给 Muse 的 token，Muse 就写不了日历了，需要重新连接。连好以后不要在这里点退出。",
+      step2Title: "2. 复制下面这句话，发给 Muse",
+      step2Body: "点下面按钮复制这句话，回到 Muse 对话里粘贴、发过去。Muse 看了就知道是哪个 App、要干什么，会发给你一个安全采集链接。安全链接生成后，回到这个页面，进行第 3 步。",
+      sentence: "我要连接 Family Smart Calendar，我刚用 Supabase 登录了，请发给我安全采集链接，我再把 Supabase refresh token 粘贴进去。",
+      sentenceWithFamily: "我要连接 Family Smart Calendar，我刚用 Supabase 登录了，请发给我安全采集链接，我再把 Supabase refresh token 粘贴进去。家庭 ID：",
+      copySentence: "复制这句话",
+      step3Title: "3. 回到这个页面，复制 refresh token，粘贴到安全链接里",
+      step3Body: "Muse 发给你安全采集链接以后，回到这个页面（它还在 Safari 后台开着，不用重新登录），点下面按钮复制 token。再打开 Muse 发给你的安全链接，把 token 粘贴进去，就完成了。不要把 token 发在聊天里，也不要截图发给别人。",
+      tokenPlaceholder: "登录后这里会有 refresh token（不显示明文）",
+      copyToken: "复制 refresh token",
+      orderNote: "注意顺序：先复制第 2 步那句话，再复制 token。每次只复制一个东西，token 最后再复制，不然会被顶掉。粘贴好以后，Muse 就能读写你的日历了。这个 token 长期有效，Muse 会自己续；如果以后想断开，让 Muse 删掉它，或者在这里点“退出登录”（会吊销 token）。",
+      statusChecking: "正在检查…",
+      statusNotSignedIn: "未登录 — 请用邮箱登录，或点 Google / Apple 按钮",
+      statusSignedIn: "已登录 ✓",
+      statusSignedOut: "未登录",
+      statusLoadFailed: "登录组件加载失败，请检查网络后刷新页面。",
+      statusError: "出错了：",
+      copiedToken: "已复制。请粘贴到第 2 步里 Muse 发给你的安全采集链接里，不要发在聊天里。",
+      copiedSentence: "已复制。回到 Muse 对话里粘贴、发过去；安全链接生成后，回到这个页面做第 3 步。",
+      signupNoSession: "注册成功，请去邮箱点验证链接，再回来登录。"
+    },
+    en: {
+      pageTitle: "Family Smart Calendar — Connect Muse",
+      intro: "Let Muse manage your calendar for you. First sign in once with your own Supabase account (the same account you use in the app), then hand the refresh token you get after signing in to Muse. Sign in once — Muse renews it automatically, so you won't have to sign in again and again.",
+      step1Title: "1. Sign in",
+      signInStatusLabel: "Sign-in status: ",
+      signedInAsLabel: "Signed in as: ",
+      familyIdLabel: "Family ID: ",
+      emailLabel: "Email",
+      passwordLabel: "Password",
+      displayNameLabel: "Name (for sign-up; your family can see it)",
+      signIn: "Sign in",
+      signUp: "Create an account",
+      emailNote: "Sign in with the account you registered in the app. No account yet? Tap “Create an account” and sign up with an email, a password and a name (during internal testing, you're signed in right after signing up — no email verification needed).",
+      oauthNote: "Google / Apple sign-in takes you to that provider's page and brings you back here afterwards. If it errors (for example, the provider isn't enabled yet), use email sign-in above instead.",
+      signOut: "Sign out",
+      signOutWarn: "Note: signing out revokes the token you gave Muse, so Muse won't be able to write your calendar until you reconnect. Don't sign out here once you're connected.",
+      step2Title: "2. Copy the sentence below and send it to Muse",
+      step2Body: "Tap the button below to copy this sentence, then go back to your Muse chat, paste it and send it. Muse will know which app this is and what you want, and will send you a secure collection link. Once the secure link is ready, come back to this page for Step 3.",
+      sentence: "I want to connect Family Smart Calendar. I just signed in with Supabase. Please send me a secure collection link, and I'll paste my Supabase refresh token into it.",
+      sentenceWithFamily: "I want to connect Family Smart Calendar. I just signed in with Supabase. Please send me a secure collection link, and I'll paste my Supabase refresh token into it. Family ID: ",
+      copySentence: "Copy this sentence",
+      step3Title: "3. Come back to this page, copy the refresh token, and paste it into the secure link",
+      step3Body: "After Muse sends you the secure collection link, come back to this page (it's still open in Safari in the background — no need to sign in again) and tap the button below to copy the token. Then open the secure link Muse sent you and paste the token in. That's it. Don't send the token in chat, and don't share a screenshot of it.",
+      tokenPlaceholder: "The refresh token will appear here after you sign in (not shown in plain text)",
+      copyToken: "Copy refresh token",
+      orderNote: "Mind the order: copy the sentence in Step 2 first, then the token. Copy only one thing at a time, and copy the token last — otherwise it will be pushed out of the clipboard. Once pasted, Muse can read and write your calendar. This token stays valid long-term and Muse renews it on its own; to disconnect later, ask Muse to delete it, or sign out here (which revokes the token).",
+      statusChecking: "Checking…",
+      statusNotSignedIn: "Not signed in — sign in with email, or tap the Google / Apple button",
+      statusSignedIn: "Signed in ✓",
+      statusSignedOut: "Not signed in",
+      statusLoadFailed: "Sign-in failed to load. Please check your connection and refresh the page.",
+      statusError: "Error: ",
+      copiedToken: "Copied. Paste it into the secure collection link Muse sent you in Step 2 — don't send it in chat.",
+      copiedSentence: "Copied. Go back to your Muse chat, paste it and send it; once the secure link is ready, come back to this page for Step 3.",
+      signupNoSession: "Signed up. Please check your email for the verification link, then come back and sign in."
+    }
+  };
+  var LANG = 'zh';
+  try {
+    var langParam = new URLSearchParams(window.location.search).get('lang');
+    if (langParam === 'en' || langParam === 'zh') { LANG = langParam; }
+    else {
+      try {
+        var savedLang = JSON.parse(localStorage.getItem(REDIRECT_KEY) || 'null');
+        if (savedLang && (savedLang.lang === 'en' || savedLang.lang === 'zh')) { LANG = savedLang.lang; }
+        else { LANG = ((navigator.language || '').toLowerCase().indexOf('zh') === 0) ? 'zh' : 'en'; }
+      } catch (e) {
+        LANG = ((navigator.language || '').toLowerCase().indexOf('zh') === 0) ? 'zh' : 'en';
+      }
+    }
+  } catch (e) {
+    LANG = ((navigator.language || '').toLowerCase().indexOf('zh') === 0) ? 'zh' : 'en';
+  }
+  function t(key) {
+    var d = I18N[LANG] || I18N.zh;
+    return d[key] !== undefined ? d[key] : (I18N.zh[key] !== undefined ? I18N.zh[key] : key);
+  }
+  var lastStatus = { key: 'statusChecking', ok: null, extra: '' };
+  function setStatus(key, ok, extra) {
+    lastStatus = { key: key, ok: ok, extra: extra || '' };
+    var el = $('auth-state');
+    el.textContent = t(key) + (extra || '');
+    el.className = ok === true ? 'ok' : (ok === false ? 'bad' : '');
+  }
+  function buildSentence() {
+    var base = FAMILY_ID ? t('sentenceWithFamily') + FAMILY_ID : t('sentence');
+    return base;
+  }
+  function applyLang() {
+    document.documentElement.lang = LANG === 'en' ? 'en' : 'zh-Hans';
+    document.title = t('pageTitle');
+    var els = document.querySelectorAll('[data-i18n]');
+    for (var i = 0; i < els.length; i++) {
+      els[i].textContent = t(els[i].getAttribute('data-i18n'));
+    }
+    var phs = document.querySelectorAll('[data-i18n-ph]');
+    for (var j = 0; j < phs.length; j++) {
+      phs[j].setAttribute('placeholder', t(phs[j].getAttribute('data-i18n-ph')));
+    }
+    $('sentence-field').value = buildSentence();
+    setStatus(lastStatus.key, lastStatus.ok, lastStatus.extra);
+    $('lang-zh').classList.toggle('active', LANG === 'zh');
+    $('lang-en').classList.toggle('active', LANG === 'en');
+  }
+  function setLang(lang) {
+    LANG = lang;
+    applyLang();
+    try {
+      var u = new URL(window.location.href);
+      u.searchParams.set('lang', lang);
+      history.replaceState(null, '', u.toString());
+    } catch (e) {}
+  }
+  $('lang-zh').addEventListener('click', function () { setLang('zh'); });
+  $('lang-en').addEventListener('click', function () { setLang('en'); });
+
+  // ---- Supabase 客户端（PKCE；detectSessionInUrl 默认开，OAuth 跳回后
+  // getSession() 会自动把 ?code= 换成会话，不用手动调 exchangeCodeForSession）----
+  var client = null;
+  var currentSession = null;
+
+  function showSignedIn(session) {
+    currentSession = session;
+    setStatus('statusSignedIn', true);
+    $('signed-in-email').textContent = (session.user && session.user.email) || '—';
+    $('signed-in-line').style.display = '';
+    if (FAMILY_ID) {
+      $('family-id').textContent = FAMILY_ID;
+      $('family-line').style.display = '';
+    }
+    $('signin-form').style.display = 'none';
+    $('signout-row').style.display = '';
+    $('auth-error').textContent = '';
+    if (session.refresh_token) {
+      $('token-field').value = session.refresh_token;
+      $('copy-token').disabled = false;
+    }
+    // 跳回来的 ?code= 是一次性的：清掉它，免得刷新页面时重复换会话；
+    // family_id / lang 保留在地址栏里（下次打开还能看到是哪个家庭）。
+    try {
+      var u = new URL(window.location.href);
+      if (u.searchParams.has('code')) {
+        u.searchParams.delete('code');
+        history.replaceState(null, '', u.toString());
+      }
+      try { localStorage.removeItem(REDIRECT_KEY); } catch (e) {}
+    } catch (e) {}
+  }
+
+  function showSignedOut() {
+    currentSession = null;
+    setStatus('statusSignedOut', false);
+    $('signed-in-line').style.display = 'none';
+    $('family-line').style.display = 'none';
+    $('signin-form').style.display = '';
+    $('signout-row').style.display = 'none';
+    $('token-field').value = '';
+    $('copy-token').disabled = true;
+  }
+
+  function showAuthError(err) {
+    var msg = (err && err.message) ? err.message : String(err || '');
+    $('auth-error').textContent = t('statusError') + msg;
+  }
+
+  function init() {
+    applyLang();
+    if (typeof supabase === 'undefined' || !supabase.createClient) {
+      setStatus('statusLoadFailed', false);
+      return;
+    }
+    client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        flowType: 'pkce',
+        detectSessionInUrl: true,
+        persistSession: true,
+        autoRefreshToken: true
+      }
+    });
+    // 打开页面先看有没有现成会话（本地存着的，或 OAuth 刚跳回来的 ?code=）。
+    client.auth.getSession().then(function (res) {
+      if (res.error) { showAuthError(res.error); setStatus('statusNotSignedIn', false); return; }
+      if (res.data && res.data.session) { showSignedIn(res.data.session); }
+      else { setStatus('statusNotSignedIn', false); }
+    }).catch(function (e) {
+      showAuthError(e);
+      setStatus('statusNotSignedIn', false);
+    });
+    client.auth.onAuthStateChange(function (event, session) {
+      if (event === 'SIGNED_IN' && session) { showSignedIn(session); }
+      else if (event === 'SIGNED_OUT') { showSignedOut(); }
+      // refresh token 会轮换：自动续期后旧 token 就失效了，显示的 token
+      // 必须跟着换新的，否则复制走的是已被吊销的旧 token。
+      else if (event === 'TOKEN_REFRESHED' && session) {
+        currentSession = session;
+        if (session.refresh_token) { $('token-field').value = session.refresh_token; }
+      }
+    });
+  }
+
+  // ---- 邮箱登录 / 注册 ----
+  $('btn-signin').addEventListener('click', async function () {
+    if (!client) return;
+    var email = $('email').value.trim();
+    var password = $('password').value;
+    $('auth-error').textContent = '';
+    var res = await client.auth.signInWithPassword({ email: email, password: password });
+    if (res.error) { showAuthError(res.error); return; }
+    if (res.data && res.data.session) { showSignedIn(res.data.session); }
+  });
+
+  var signupMode = false;
+  $('btn-signup').addEventListener('click', async function () {
+    if (!client) return;
+    if (!signupMode) {
+      // 第一次点：先展开名字栏，让用户填名字再点一次注册。
+      signupMode = true;
+      $('signup-name-row').style.display = '';
+      $('btn-signup').textContent = t('signUp');
+      $('display-name').focus();
+      return;
+    }
+    var email = $('email').value.trim();
+    var password = $('password').value;
+    var displayName = $('display-name').value.trim();
+    $('auth-error').textContent = '';
+    var res = await client.auth.signUp({
+      email: email,
+      password: password,
+      options: { data: { display_name: displayName || email.split('@')[0] } }
+    });
+    if (res.error) { showAuthError(res.error); return; }
+    if (res.data && res.data.session) { showSignedIn(res.data.session); }
+    else {
+      // 邮箱确认开了时：注册成功但还没会话，等用户点邮箱里的验证链接。
+      $('auth-error').textContent = t('signupNoSession');
+      $('auth-error').className = 'ok';
+    }
+  });
+
+  // ---- Google / Apple OAuth（PKCE；跳回地址用本页裸地址，参数存 localStorage）----
+  function startOAuth(provider) {
+    if (!client) return;
+    try {
+      localStorage.setItem(REDIRECT_KEY, JSON.stringify({ family_id: FAMILY_ID, lang: LANG }));
+    } catch (e) {}
+    client.auth.signInWithOAuth({
+      provider: provider,
+      options: { redirectTo: PAGE_URL }
+    }).then(function (res) {
+      if (res.error) { showAuthError(res.error); }
+    }).catch(showAuthError);
+  }
+  $('btn-google').addEventListener('click', function () { startOAuth('google'); });
+  $('btn-apple').addEventListener('click', function () { startOAuth('apple'); });
+
+  // ---- 退出登录（会吊销已交给 Muse 的 token）----
+  $('btn-signout').addEventListener('click', async function () {
+    if (!client) return;
+    await client.auth.signOut();
+    showSignedOut();
+  });
+
+  // ---- 复制：这句话 / refresh token ----
+  function copyText(text, stateEl, msgKey) {
+    function done() {
+      if (stateEl) {
+        stateEl.textContent = t(msgKey);
+        stateEl.className = 'ok';
+      }
+    }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(done).catch(function () { done(); });
+    } else { done(); }
+  }
+  $('copy-sentence').addEventListener('click', function () {
+    copyText($('sentence-field').value, $('sentence-state'), 'copiedSentence');
+  });
+  $('copy-token').addEventListener('click', function () {
+    if (!currentSession || !currentSession.refresh_token) return;
+    var f = $('token-field');
+    f.type = 'text'; f.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    copyText(currentSession.refresh_token, $('copy-state'), 'copiedToken');
+    f.type = 'password';
+  });
+
+  init();
+})();
+</script>
+</body>
+</html>
